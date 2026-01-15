@@ -4,9 +4,8 @@ import pandas as pd
 import io
 import re
 
-st.set_page_config(page_title="PDF a CSV - Envios Full", page_icon=":package:")
+st.set_page_config(page_title="PDF a CSV - Envios Full")
 st.title("Procesador PDF Envios Full")
-
 uploaded_file = st.file_uploader("Sube tu PDF de Mercado Libre", type="pdf")
 
 def parse_envios_full(pdf):
