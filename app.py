@@ -18,7 +18,7 @@ def parse_envios_full(pdf):
         if text:
             full_text += text + "\n"
     
-    # Extraer numero de guia del texto
+    # Extraer numero de guia
     guia_match = re.search(r'Inbound[:\s-]*(\d+)', full_text, re.IGNORECASE)
     if not guia_match:
         guia_match = re.search(r'(\d{8,})', full_text)
@@ -26,72 +26,70 @@ def parse_envios_full(pdf):
         guia = guia_match.group(1)
     
     # Extraer tablas del PDF
-    all_tables = []
     for page in pdf.pages:
         tables = page.extract_tables()
         for table in tables:
-            all_tables.extend(table)
-    
-    # Procesar cada fila de la tabla
-    for row in all_tables:
-        if not row or len(row) < 2:
-            continue
-        
-        # Saltar filas de encabezado
-        primera_celda = str(row[0]) if row[0] else ""
-        if 'PRODUCTO' in primera_celda.upper() and 'UNIDADES' in str(row):
-            continue
-        
-        # Verificar si contiene datos de producto (Codigo ML)
-        if 'digo ML' not in primera_celda:
-            continue
-        
-        # Extraer datos de la primera celda
-        texto_producto = primera_celda
-        
-        # Extraer Codigo ML
-        ml_match = re.search(r'digo\s*ML[:\s]*([A-Z0-9]+)', texto_producto, re.IGNORECASE)
-        codigo_ml = ml_match.group(1) if ml_match else ""
-        
-        # Extraer Codigo Universal
-        universal_match = re.search(r'digo\s*universal[:\s]*([A-Z0-9]+|N/?A)', texto_producto, re.IGNORECASE)
-        codigo_universal = universal_match.group(1) if universal_match else ""
-        
-        # Extraer SKU
-        sku_match = re.search(r'SKU[:\s]*([^\n]+)', texto_producto, re.IGNORECASE)
-        sku = sku_match.group(1).strip() if sku_match else ""
-        
-        # Extraer Nombre (lineas despues del SKU)
-        nombre = ""
-        lines = texto_producto.split('\n')
-        encontro_sku = False
-        for line in lines:
-            if 'SKU' in line.upper():
-                encontro_sku = True
-                continue
-            if encontro_sku and line.strip():
-                nombre = line.strip()
-                break
-        
-        # Extraer Unidades (segunda celda)
-        unidades = str(row[1]).strip() if len(row) > 1 and row[1] else "1"
-        
-        # Extraer Identificacion (tercera celda)
-        identificacion = str(row[2]).replace('\n', ' ').strip() if len(row) > 2 and row[2] else ""
-        
-        # Extraer Instrucciones (cuarta celda)
-        instrucciones = str(row[3]).replace('\n', ' ').strip() if len(row) > 3 and row[3] else ""
-        
-        productos.append({
-            'Guia': guia,
-            'Codigo ML': codigo_ml,
-            'Codigo Universal': codigo_universal,
-            'SKU': sku,
-            'Nombre': nombre,
-            'Unidades': unidades,
-            'Identificacion': identificacion,
-            'Instrucciones': instrucciones
-        })
+            for row in table:
+                if not row or len(row) < 2:
+                    continue
+                
+                primera_celda = str(row[0]) if row[0] else ""
+                
+                # Saltar encabezados
+                if 'PRODUCTO' in primera_celda.upper():
+                    continue
+                
+                # Buscar filas con Codigo ML
+                if 'digo ML' not in primera_celda and 'Codigo ML' not in primera_celda:
+                    continue
+                
+                # Extraer Codigo ML
+                ml_match = re.search(r'digo\s*ML[:\s]*([A-Z0-9]+)', primera_celda, re.IGNORECASE)
+                codigo_ml = ml_match.group(1) if ml_match else ""
+                
+                # Extraer Codigo Universal
+                univ_match = re.search(r'digo\s*universal[:\s]*([A-Z0-9/]+)', primera_celda, re.IGNORECASE)
+                codigo_universal = univ_match.group(1) if univ_match else ""
+                
+                # Extraer SKU
+                sku_match = re.search(r'SKU[:\s]*([^\n]+)', primera_celda, re.IGNORECASE)
+                sku = sku_match.group(1).strip() if sku_match else ""
+                
+                # Extraer Nombre (lineas despues del SKU)
+                nombre = ""
+                lines = primera_celda.split('\n')
+                encontro_sku = False
+                for line in lines:
+                    if 'SKU' in line.upper():
+                        encontro_sku = True
+                        continue
+                    if encontro_sku and line.strip():
+                        nombre = line.strip()
+                        break
+                
+                # Unidades (segunda celda)
+                unidades = str(row[1]).strip() if len(row) > 1 and row[1] else "1"
+                
+                # Identificacion (tercera celda)
+                identificacion = ""
+                if len(row) > 2 and row[2]:
+                    identificacion = str(row[2]).replace('\n', ' ').strip()
+                
+                # Instrucciones (cuarta celda)
+                instrucciones = ""
+                if len(row) > 3 and row[3]:
+                    instrucciones = str(row[3]).replace('\n', ' ').strip()
+                
+                productos.append({
+                    'Guia': guia,
+                    'Codigo ML': codigo_ml,
+                    'Codigo Universal': codigo_universal,
+                    'SKU': sku,
+                    'Nombre': nombre,
+                    'Unidades': unidades,
+                    'Identificacion': identificacion,
+                    'Instrucciones': instrucciones
+                })
     
     return productos, guia
 
@@ -114,4 +112,4 @@ if uploaded_file:
             df.to_excel(buf, index=False, engine='openpyxl')
             st.download_button("Descargar Excel", buf.getvalue(), f"envios_full_{guia}.xlsx")
         else:
-            st.warning("No se encontraron productos.")
+            st.warning("No se encontraron productos en el PDF.")
