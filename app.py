@@ -18,59 +18,84 @@ def parse_envios_full(pdf):
         if text:
             full_text += text + "\n"
     
-    # Extraer numero de envio
-    envio_match = re.search(r'Env[ií]o\s*(\d+)', full_text)
-    if envio_match:
-        guia = envio_match.group(1)
+    # Mostrar texto extraido para debugging
+    with st.expander("Ver texto extraido del PDF"):
+        st.text(full_text)
     
-    # Patron para extraer productos
-    pattern = r'C[oó]digo\s*ML\s*([A-Z0-9]+)\s*C[oó]digo\s*universal\s*([A-Z0-9]+|NA)\s*SKU\s*([^\n]+?)\s+([A-Z][^C]+?)(?=C[oó]digo\s*ML|PRODUCTO|$)'
+    # Extraer numero de envio/guia (buscar patron como 59438449)
+    guia_match = re.search(r'Inbound[:\s-]*(\d+)', full_text, re.IGNORECASE)
+    if not guia_match:
+        guia_match = re.search(r'Env[ií]o[:\s]*(\d+)', full_text, re.IGNORECASE)
+    if not guia_match:
+        guia_match = re.search(r'(\d{8,})', full_text)
+    if guia_match:
+        guia = guia_match.group(1)
     
-    matches = re.findall(pattern, full_text, re.IGNORECASE | re.DOTALL)
+    # Extraer tablas del PDF
+    all_tables = []
+    for page in pdf.pages:
+        tables = page.extract_tables()
+        for table in tables:
+            all_tables.extend(table)
     
-    # Extraer unidades de la tabla PRODUCTO UNIDADES
-    unidades_pattern = r'PRODUCTO\s+UNIDADES\s+IDENTIFICACI[OÓ]N\s+INSTRUCCIONES[^\d]*([\d\s]+)'
-    unidades_matches = re.findall(unidades_pattern, full_text, re.IGNORECASE)
+    # Mostrar tablas para debugging
+    with st.expander("Ver tablas extraidas"):
+        for i, row in enumerate(all_tables):
+            st.write(f"Fila {i}: {row}")
     
-    unidades_list = []
-    for um in unidades_matches:
-        nums = re.findall(r'\d+', um)
-        unidades_list.extend(nums)
+    # Buscar filas con datos de productos
+    for row in all_tables:
+        if row and len(row) >= 4:
+            # Verificar si es una fila de datos (no encabezado)
+            row_text = ' '.join([str(cell) for cell in row if cell])
+            
+            # Buscar codigo ML en la fila
+            ml_match = re.search(r'ML[A-Z]?\d+', row_text)
+            if ml_match:
+                codigo_ml = ml_match.group(0)
+                
+                # Extraer otros campos de la fila
+                sku = ""
+                nombre = ""
+                unidades = "1"
+                codigo_universal = ""
+                
+                for cell in row:
+                    if cell:
+                        cell_str = str(cell).strip()
+                        # Detectar SKU (patron alfanumerico corto)
+                        if re.match(r'^[A-Z0-9-]{4,20}$', cell_str) and cell_str != codigo_ml:
+                            if not sku:
+                                sku = cell_str
+                            elif not codigo_universal and len(cell_str) >= 10:
+                                codigo_universal = cell_str
+                        # Detectar unidades (numero solo)
+                        elif re.match(r'^\d{1,3}$', cell_str):
+                            unidades = cell_str
+                        # Detectar nombre (texto largo)
+                        elif len(cell_str) > 20 and not re.match(r'^[A-Z0-9-]+$', cell_str):
+                            nombre = cell_str
+                
+                productos.append({
+                    'Guia': guia,
+                    'Codigo ML': codigo_ml,
+                    'Codigo Universal': codigo_universal,
+                    'SKU': sku,
+                    'Nombre': nombre,
+                    'Unidades': unidades,
+                })
     
-    for i, match in enumerate(matches):
-        codigo_ml = match[0].strip()
-        codigo_universal = match[1].strip()
-        sku_nombre = match[2].strip() + " " + match[3].strip()
-        
-        # Separar SKU del nombre
-        parts = sku_nombre.split(" ", 1)
-        sku = parts[0] if parts else ""
-        nombre = parts[1] if len(parts) > 1 else ""
-        nombre = nombre.replace(",", " ").strip()
-        nombre = re.sub(r'\s+', ' ', nombre)
-        nombre = re.sub(r'Etiquetado obligatorio.*', '', nombre, flags=re.IGNORECASE).strip()
-        
-        unidades = unidades_list[i] if i < len(unidades_list) else "1"
-        
-        productos.append({
-            'Codigo ML': codigo_ml,
-            'Codigo Universal': codigo_universal,
-            'SKU': sku,
-            'Nombre': nombre,
-            'Unidades': unidades,
-            'Identificacion': 'Etiquetado obligatorio',
-            'Instrucciones de preparacion': '',
-            'Guia': guia
-        })
-    
-    return productos
+    return productos, guia
 
 if uploaded_file:
     with pdfplumber.open(uploaded_file) as pdf:
-        productos = parse_envios_full(pdf)
+        productos, guia = parse_envios_full(pdf)
         
         if productos:
             df = pd.DataFrame(productos)
+            # Asegurar que la guia este en todas las filas
+            if guia:
+                df['Guia'] = guia
             st.success(f"Se encontraron {len(df)} productos")
             st.dataframe(df, use_container_width=True)
             
@@ -81,4 +106,4 @@ if uploaded_file:
             df.to_excel(buf, index=False, engine='openpyxl')
             st.download_button("Descargar Excel", buf.getvalue(), "envios_full.xlsx")
         else:
-            st.warning("No se encontraron productos.")
+            st.warning("No se encontraron productos. Revisa el texto extraido arriba para ver el formato del PDF.")
