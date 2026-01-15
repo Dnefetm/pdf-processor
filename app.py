@@ -60,9 +60,13 @@ def parse_envios_full(pdf):
                 sku_line_idx = -1
                 for i, line in enumerate(lines):
                     if 'SKU' in line.upper():
+                        # Intentar extraer SKU de la misma linea
                         sku_match = re.search(r'SKU[:\s]*(.+)', line, re.IGNORECASE)
                         if sku_match:
-                            sku = sku_match.group(1).strip()
+                            sku_value = sku_match.group(1).strip()
+                            # Si hay valor en la misma linea, usarlo
+                            if sku_value and sku_value != ':':
+                                sku = sku_value
                         sku_line_idx = i
                         break
                 
@@ -70,10 +74,17 @@ def parse_envios_full(pdf):
                 if sku_line_idx >= 0:
                     remaining_lines = lines[sku_line_idx + 1:]
                     nombre_parts = []
+                    sku_from_next_line = False
                     
-                    for line in remaining_lines:
+                    for idx, line in enumerate(remaining_lines):
                         line = line.strip()
                         if not line:
+                            continue
+                        
+                        # Si SKU esta vacio, la primera linea siguiente es el SKU
+                        if not sku and idx == 0:
+                            sku = line
+                            sku_from_next_line = True
                             continue
                         
                         # Si la linea es solo numeros/espacios cortos, es parte del SKU
