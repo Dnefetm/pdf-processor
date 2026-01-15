@@ -51,21 +51,42 @@ def parse_envios_full(pdf):
                 univ_match = re.search(r'digo\s*universal[:\s]*([A-Z0-9/]+)', primera_celda, re.IGNORECASE)
                 codigo_universal = univ_match.group(1) if univ_match else ""
                 
-                # Extraer SKU
-                sku_match = re.search(r'SKU[:\s]*([^\n]+)', primera_celda, re.IGNORECASE)
-                sku = sku_match.group(1).strip() if sku_match else ""
-                
-                # Extraer Nombre (lineas despues del SKU)
+                # Extraer SKU y Nombre con logica mejorada
+                sku = ""
                 nombre = ""
                 lines = primera_celda.split('\n')
-                encontro_sku = False
-                for line in lines:
+                
+                # Encontrar la linea del SKU
+                sku_line_idx = -1
+                for i, line in enumerate(lines):
                     if 'SKU' in line.upper():
-                        encontro_sku = True
-                        continue
-                    if encontro_sku and line.strip():
-                        nombre = line.strip()
+                        sku_match = re.search(r'SKU[:\s]*(.+)', line, re.IGNORECASE)
+                        if sku_match:
+                            sku = sku_match.group(1).strip()
+                        sku_line_idx = i
                         break
+                
+                # Procesar lineas despues del SKU
+                if sku_line_idx >= 0:
+                    remaining_lines = lines[sku_line_idx + 1:]
+                    nombre_parts = []
+                    
+                    for line in remaining_lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # Si la linea es solo numeros/espacios cortos, es parte del SKU
+                        if re.match(r'^[\d\s]+$', line) and len(line) <= 15:
+                            sku = sku + " " + line
+                        else:
+                            # Es el nombre del producto
+                            nombre_parts.append(line)
+                    
+                    nombre = ' '.join(nombre_parts)
+                
+                # Limpiar SKU (remover espacios extra)
+                sku = re.sub(r'\s+', ' ', sku).strip()
                 
                 # Unidades (segunda celda)
                 unidades = str(row[1]).strip() if len(row) > 1 and row[1] else "1"
